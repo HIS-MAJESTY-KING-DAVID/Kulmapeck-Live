@@ -2,75 +2,98 @@ pipeline {
     agent any
 
     environment {
-        FTP_SERVER = ' ftp.staging-kulmapeck.online'
+        FTP_SERVER = 'ftp.staging-kulmapeck.online'
         FTP_USER = 'admin_staging-kulmapeck.online'
-        FTP_PASSWORD = 'zbHa*Z$)jBH)Q'
+        FTP_PASSWORD = credentials('FTP_STAGING_PASSWORD')
         REMOTE_DIRECTORY = ''
-
-        FTP_SERVER_Prod = 'vps96969.serveur-vps.net'
-        FTP_USER_Prod = 'defaultpayment'
-        FTP_PASSWORD_Prod = 'Benito@2000'
-        REMOTE_DIRECTORY_Prod = '/web/CICD'
     }
 
     stages {
-          stage('Clone Kulmapeck Project') {
+        stage('Clone Kulmapeck Project') {
             steps {
-                git branch: 'main', url: 'https://github.com/Sensei237/kulmapeck.git'
+                git branch: 'develop', url: 'https://github.com/Sensei237/kulmapeck.git'
             }
         }
 
-        stage('Installer Dependency') {
+        stage('Install Dependencies') {
             steps {
-                bat 'composer install'
+                bat 'composer install --no-interaction --prefer-dist'
             } 
         }
 
-        stage('Enable update package') {
+        stage('Setup Development Environment') {
             steps {
-                bat 'composer update'
-            } 
+                bat 'if not exist .env copy .env.example .env'
+                bat 'php bin/console doctrine:database:create --if-not-exists --env=dev'
+                bat 'php bin/console doctrine:migrations:migrate --no-interaction --env=dev'
+            }
         }
 
         stage('Clear Symfony Cache') {
             steps {
-                bat 'php bin/console cache:clear --env=prod'
+                bat 'php bin/console cache:clear --env=dev'
             }
         }
 
-        stage('Run test') {
+        stage('Run Tests') {
             steps {
-                bat 'php bin/phpunit'
+                bat 'php bin/phpunit --coverage-html coverage'
             }
         }
 
-       stage('Zip project') {
-          steps {
-            bat 'del depl.zip'
-
-            powershell 'Compress-Archive -Path .\\* -DestinationPath depl.zip'
-           }
-       }
-
-
-        stage('Deployment FTP and push to Lws Server') {
+        stage('Static Analysis') {
             steps {
-                bat "curl --ftp-create-dirs -T depl.zip -u ${FTP_USER}:${FTP_PASSWORD} ftp://${FTP_SERVER}${REMOTE_DIRECTORY}/"
+                bat 'vendor/bin/phpstan analyse src --level=5'
+                bat 'vendor/bin/php-cs-fixer fix src --dry-run'
             }
         }
 
-        stage('Decompress project on remote server') {
+        stage('Build Assets') {
             steps {
-
-                bat "ssh -p 5804 ${FTP_USER}@${FTP_SERVER} 'unzip -o ${REMOTE_DIRECTORY}/depl.zip -d ${REMOTE_DIRECTORY}'"
-                
-                // Remove the ZIP file on the remote server
-                bat "ssh -p 5804 ${FTP_USER}@${FTP_SERVER} 'rm ${REMOTE_DIRECTORY}/depl.zip'"
-                
+                bat 'npm install'
+                bat 'npm run dev'
             }
         }
 
-        
+        stage('Zip Project') {
+            steps {
+                bat 'if exist depl.zip del depl.zip'
+                powershell '''
+                    Compress-Archive -Path .\\* -DestinationPath depl.zip -Force -Exclude @(
+                        "node_modules\\*",
+                        ".git\\*",
+                        "tests\\*",
+                        "coverage\\*",
+                        "*.log"
+                    )
+                '''
+            }
+        }
 
+        stage('Deploy to Staging') {
+            steps {
+                bat "curl --ftp-create-dirs -T depl.zip -u %FTP_USER%:%FTP_PASSWORD% ftp://%FTP_SERVER%%REMOTE_DIRECTORY%/"
+            }
+        }
+
+        stage('Post-Deploy Actions') {
+            steps {
+                bat "ssh -p 5804 %FTP_USER%@%FTP_SERVER% 'unzip -o %REMOTE_DIRECTORY%/depl.zip -d %REMOTE_DIRECTORY%'"
+                bat "ssh -p 5804 %FTP_USER%@%FTP_USER% 'rm %REMOTE_DIRECTORY%/depl.zip'"
+                bat "ssh -p 5804 %FTP_USER%@%FTP_SERVER% 'php %REMOTE_DIRECTORY%/bin/console cache:clear --env=dev'"
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Deployment to staging successful!'
+        }
+        failure {
+            echo 'Deployment failed!'
+        }
     }
 }
