@@ -1,0 +1,20 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+RewriteCond %{HTTP_HOST} !=site.kulmapeck.com
+RewriteCond %{HTTP_HOST} !=investir.kulmapeck.com
+    # Redirection vers le dossier public pour Symfony
+    RewriteCond %{REQUEST_URI} !^/public/
+    RewriteRule ^(.*)$ /public/$1 [L]
+RewriteCond %{HTTP_HOST} !=site.kulmapeck.com
+RewriteCond %{HTTP_HOST} !=investir.kulmapeck.com
+    # Redirect requests to the /public folder
+    RewriteCond %{REQUEST_URI} !^/public/index.php
+    RewriteRule ^(.*)$ /public/$1 [L]
+
+
+</IfModule>
+
+
+
+
