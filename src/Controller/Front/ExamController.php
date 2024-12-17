@@ -40,7 +40,6 @@ class ExamController extends AbstractController
             'sClasse' => $classe,
             'language' => $language,
             'skillLevel' => $skillLevel,
-            
         ]);
     }
 
@@ -60,30 +59,39 @@ class ExamController extends AbstractController
             throw $this->createAccessDeniedException("Vous devez être premium!");
         }
 
-        return $this->render('front/exam/show.html.twig', [
+        $response = $this->render('front/exam/show.html.twig', [
             'exam' => $exam,
             'isExamPage' => true,
             'display' => $request->query->get('display', 'subject'),
             'data' => $request->query->get('display', 'subject') === 'correction' ? $exam->getCorrection() : $exam->getSujet(),
-            
         ]);
+
+        // Add security headers to prevent downloads
+        $response->headers->set('Content-Security-Policy', "default-src 'self'; frame-src 'self'; object-src 'none'");
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
+        $response->headers->set('X-Frame-Options', 'SAMEORIGIN');
+        
+        return $response;
     }
     
     #[Route('/exam/file/{filename}', name: 'app_exam_file')]
-public function servePdfFile(string $filename): Response
-{
-    $filePath = $this->getParameter('kernel.project_dir') . '/uploads/media/exams/files/' . $filename;
+    public function servePdfFile(string $filename): Response
+    {
+        $filePath = $this->getParameter('kernel.project_dir') . '/uploads/media/exams/files/' . $filename;
 
-    if (!file_exists($filePath)) {
-        throw $this->createNotFoundException("Fichier introuvable.");
+        if (!file_exists($filePath)) {
+            throw $this->createNotFoundException("Fichier introuvable.");
+        }
+
+        $response = new Response(file_get_contents($filePath), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline', // Force display instead of download
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma' => 'no-cache',
+            'Content-Security-Policy' => "default-src 'self'; object-src 'none'",
+        ]);
+
+        return $response;
     }
-
-    return new Response(file_get_contents($filePath), 200, [
-        'Content-Type' => 'application/pdf',
-        'Content-Disposition' => 'inline', // Empêche le téléchargement en forçant l'affichage
-        'X-Content-Type-Options' => 'nosniff',
-        'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
-        'Pragma' => 'no-cache',
-    ]);
-}
 }
